@@ -132,6 +132,7 @@ export default function packstubSpreadsheet(config) {
                     readOnly: this.readOnly,
                     rowHeight: config.rowHeight,
                     variableRowHeight: !! config.variableRowHeight,
+                    rowHeaderWidth: config.rowHeaderWidth,
                     footer: config.hasFooter ? () => this.footer : null,
                     frozenFirstColumn: config.frozenFirstColumn !== false,
                     // Rows are numbered (and render, as they scroll into view) by the page shown, not by one still asked for.
@@ -303,7 +304,7 @@ export default function packstubSpreadsheet(config) {
             let needed = Math.ceil(header + Math.max(3, rows) * pitch + 2)
             if (config.variableRowHeight) {
                 // henx: rows of their own height: the grid is as tall as its rows and the footer, the page scrolls.
-                const sum = [...grid.querySelectorAll('.tabulator-row')].reduce((h, el) => h + el.getBoundingClientRect().height, 0)
+                const sum = [...grid.querySelectorAll('.tabulator-tableholder .tabulator-row')].reduce((h, el) => h + el.getBoundingClientRect().height, 0)
                 const foot = grid.querySelector('.tabulator-footer')?.getBoundingClientRect().height ?? 0
                 const px = Math.ceil(header + Math.max(sum, 3 * rowHeight) + foot + 2)
                 if (this._fitHeight !== null && Math.abs(px - this._fitHeight) < 2) return
@@ -642,6 +643,11 @@ export default function packstubSpreadsheet(config) {
             const same = a.page === was.page && a.perPage === was.perPage && a.sort.column === was.sort.column && a.sort.direction === was.sort.direction && a.query === was.query
             this.renderPage(! same)
             this.grid?.recalc?.()
+            // henx: variable rows change height once the web font is in: measure again then.
+            if (config.variableRowHeight) {
+                requestAnimationFrame(() => this.fit())
+                document.fonts?.ready?.then(() => { this._fitHeight = null; this.fit() })
+            }
         },
 
         /**
@@ -672,7 +678,13 @@ export default function packstubSpreadsheet(config) {
         queueAutoSave() {
             if (! config.autoSave) return
             clearTimeout(this._autoSave)
-            this._autoSave = setTimeout(() => { if (! this.editing && this.dirty.total) this.save(); else if (this.dirty.total) this.queueAutoSave() }, 400)
+            // After the save the page is read again: server-rendered cells (HTML, sums) and the footer follow the change.
+            this._autoSave = setTimeout(async () => {
+                if (this.editing) { this.queueAutoSave(); return }
+                if (! this.dirty.total) return
+                await this.save()
+                if (! this.dirty.total) this.refresh()
+            }, 400)
         },
 
         onEdit(id, col, from, to) {
@@ -965,7 +977,8 @@ export default function packstubSpreadsheet(config) {
             const onlyConflicts = conflicts && ! Object.keys(this.buffer.errors).length && ! Object.keys(this.buffer.rowErrors).length
             if (result.message && ! (result.rolledBack && onlyConflicts)) this.notify(result.message, result.rolledBack ? 'danger' : 'warning')
             else if (out.failed.length && (written || ! onlyConflicts)) this.notify(choice(t.partly_saved, written, { saved: written, failed: out.failed.length }), 'warning')
-            else if (written) this.notify(choice(t.saved, written), 'success')
+            // henx: with autoSave a successful save is silent, like a cell edit in a sheet.
+            else if (written && ! config.autoSave) this.notify(choice(t.saved, written), 'success')
             if (conflicts) this.notify(t.has_conflicts, 'warning')
         },
 

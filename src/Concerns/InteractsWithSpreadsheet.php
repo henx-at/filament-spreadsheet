@@ -200,6 +200,7 @@ trait InteractsWithSpreadsheet
             'variableRowHeight' => $sheet->hasVariableRowHeight(),
             'autoSave' => $sheet->isAutoSave(),
             'hasFooter' => $sheet->hasFooter(),
+            'rowHeaderWidth' => $sheet->getRowHeaderWidth(),
             'keybindings' => array_filter((array) config('packstub-spreadsheet.keybindings', []), 'is_string'),
             'locale' => str_replace('_', '-', app()->getLocale()),
             'height' => $this->getSpreadsheetHeight(),

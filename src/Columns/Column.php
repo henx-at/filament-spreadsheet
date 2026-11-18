@@ -52,6 +52,9 @@ abstract class Column
     /** henx: extra CSS classes on every cell of the column and on its header. */
     protected ?string $cellClass = null;
 
+    /** henx: share of the free width the column takes (the sheet then fits its columns to the width). */
+    protected ?int $grow = null;
+
     final public function __construct(protected string $name) {}
 
     public static function make(string $name): static
@@ -73,6 +76,14 @@ abstract class Column
     public function group(?string $label): static
     {
         $this->group = $label;
+
+        return $this;
+    }
+
+    /** henx: let the column take the free width (with others: by share). */
+    public function grow(?int $share = 1): static
+    {
+        $this->grow = $share;
 
         return $this;
     }
@@ -382,6 +393,7 @@ abstract class Column
             'default' => $this->isEditable() ? $this->presentValue($this->getDefault()) : null,
             'group' => $this->group,
             'cellClass' => $this->cellClass,
+            'grow' => $this->grow,
         ];
     }
 

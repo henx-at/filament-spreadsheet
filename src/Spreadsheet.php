@@ -85,6 +85,9 @@ class Spreadsheet
     /** henx: footer cells as HTML per column name: `fn (): array<string, string>`. */
     protected ?Closure $footer = null;
 
+    /** henx: width of the row number column in pixels. */
+    protected int $rowHeaderWidth = 56;
+
     /** henx: save every change on its own (no Save button). */
     protected bool $autoSave = false;
 
@@ -118,6 +121,19 @@ class Spreadsheet
         $this->footer = $callback;
 
         return $this;
+    }
+
+    /** henx: width of the row number column. */
+    public function rowHeaderWidth(int $pixels): static
+    {
+        $this->rowHeaderWidth = $pixels;
+
+        return $this;
+    }
+
+    public function getRowHeaderWidth(): int
+    {
+        return $this->rowHeaderWidth;
     }
 
     /** henx: save each change right away. */

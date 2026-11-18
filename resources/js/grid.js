@@ -273,7 +273,8 @@ export function createGrid(element, options) {
             },
             titleFormatter: (cell) => {
                 const s = sortState()
-                const arrow = s.column === column.name ? (s.direction === 'desc' ? ' ▼' : ' ▲') : ''
+                // henx: no arrow on a column that cannot be sorted (the default order is the key's).
+                const arrow = column.sortable && s.column === column.name ? (s.direction === 'desc' ? ' ▼' : ' ▲') : ''
                 const el = document.createElement('span')
                 el.className = 'ps-sheet-title'
                 el.textContent = column.label + arrow
@@ -292,6 +293,9 @@ export function createGrid(element, options) {
             def.bottomCalc = () => null
             def.bottomCalcFormatter = () => options.footer()?.[column.name] ?? ''
         }
+        // henx: a growing column takes the free width (fitColumns layout below); the others keep their width.
+        if (column.grow) { def.widthGrow = column.grow; delete def.width }
+        else if (columns.some((c) => c.grow) && column.width) def.widthGrow = 0
         if (column.sortable) def.cssClass += ' ps-sheet-col-sortable'
         if (! column.editable || column.readOnly) def.cssClass += ' ps-sheet-col-readonly'
 
@@ -346,7 +350,7 @@ export function createGrid(element, options) {
         // height, so a percentage would resolve to "as tall as the rows" and nothing would be windowed.
         // The variable is set on .ps-sheet (the stylesheet's default, or the page's getSpreadsheetHeight()).
         height: 'var(--ps-sheet-height)',
-        layout: 'fitDataStretch',
+        layout: columns.some((c) => c.grow) ? 'fitColumns' : 'fitDataStretch',
         // Rows are windowed, columns are not: with 'virtual' the horizontal renderer now and then left the right-hand
         // cells of every row unrendered (the header drawn, the cells blank, once down to the first column), seen
         // after a delete near the end of a short page and after a paste. A sheet has a dozen columns at most.
@@ -359,8 +363,8 @@ export function createGrid(element, options) {
             field: ROWNUM,
             resizable: false,
             frozen: true,
-            width: 56,
-            minWidth: 40,
+            width: options.rowHeaderWidth ?? 56,
+            minWidth: Math.min(40, options.rowHeaderWidth ?? 56),
             hozAlign: 'center',
             cssClass: 'ps-sheet-rownum',
             editor: false,
@@ -961,7 +965,7 @@ export function createGrid(element, options) {
                 const column = columns.find((c) => c.name === col.getField())
                 const el = col.getElement()?.querySelector('.ps-sheet-title')
                 if (! column || ! el) continue
-                const sorted = s.column === column.name
+                const sorted = column.sortable && s.column === column.name
                 el.textContent = column.label + (sorted ? (s.direction === 'desc' ? ' ▼' : ' ▲') : '')
                 // Tabulator writes aria-sort="none" on every header itself (its Sort module, not registered, would keep it).
                 col.getElement().setAttribute('aria-sort', sorted ? (s.direction === 'desc' ? 'descending' : 'ascending') : 'none')
