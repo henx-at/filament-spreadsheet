@@ -294,7 +294,7 @@ export function createGrid(element, options) {
             def.bottomCalcFormatter = () => options.footer()?.[column.name] ?? ''
         }
         // henx: a growing column takes the free width (fitColumns layout below); the others keep their width.
-        if (column.grow) { def.widthGrow = column.grow; delete def.width }
+        if (column.grow) { def.widthGrow = column.grow; if (column.width) def.minWidth = column.width; delete def.width }
         else if (columns.some((c) => c.grow) && column.width) def.widthGrow = 0
         if (column.sortable) def.cssClass += ' ps-sheet-col-sortable'
         if (! column.editable || column.readOnly) def.cssClass += ' ps-sheet-col-readonly'
