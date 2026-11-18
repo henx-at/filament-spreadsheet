@@ -16,6 +16,7 @@
 import {
     AccessorModule,
     ClipboardModule,
+    ColumnCalcsModule,
     EditModule,
     ExportModule,
     FormatModule,
@@ -30,7 +31,7 @@ import {
 import { display, phpDate } from './sheet.js'
 
 Tabulator.registerModule([
-    AccessorModule, ClipboardModule, EditModule, ExportModule, FormatModule,
+    AccessorModule, ClipboardModule, ColumnCalcsModule, EditModule, ExportModule, FormatModule,
     FrozenColumnsModule, InteractionModule, KeybindingsModule, ResizeColumnsModule, ResizeTableModule, SelectRangeModule,
 ])
 
@@ -260,8 +261,16 @@ export function createGrid(element, options) {
             minWidth: { number: 90, date: 120, datetime: 160, boolean: 70 }[column.type] ?? 80,
             frozen: column.frozen || (options.frozenFirstColumn && i === 0),
             hozAlign: column.type === 'number' || (column.type === 'computed' && column.decimals != null) ? 'right' : column.type === 'boolean' ? 'center' : 'left',
-            cssClass: `ps-sheet-col-${column.type}`,
-            formatter: (cell) => { paint(cell, column, t); return base(cell) },
+            cssClass: `ps-sheet-col-${column.type}` + (column.cellClass ? ` ${column.cellClass}` : ''),
+            formatter: (cell) => {
+                paint(cell, column, t)
+                // henx: server-rendered HTML for the cell (the editor still edits the value); not for unsaved cells.
+                const m = cell.getRow().getData()._m ?? {}
+                const html = m.html?.[column.name]
+                if (html != null && ! m.dirty?.[column.name] && ! m.created) return html
+
+                return base(cell)
+            },
             titleFormatter: (cell) => {
                 const s = sortState()
                 const arrow = s.column === column.name ? (s.direction === 'desc' ? ' ▼' : ' ▲') : ''
@@ -278,17 +287,45 @@ export function createGrid(element, options) {
             editorEmptyValue: null,
             ...editorFor(column, t),
         }
+        if (options.footer) {
+            // henx: footer cells come from the server as HTML.
+            def.bottomCalc = () => null
+            def.bottomCalcFormatter = () => options.footer()?.[column.name] ?? ''
+        }
         if (column.sortable) def.cssClass += ' ps-sheet-col-sortable'
         if (! column.editable || column.readOnly) def.cssClass += ' ps-sheet-col-readonly'
 
         return def
     })
 
+    // henx: consecutive columns with the same group label go under one group header.
+    const grouped = []
+    defs.forEach((def, i) => {
+        const group = columns[i].group
+        const last = grouped[grouped.length - 1]
+        if (! group) { grouped.push(def); return }
+        if (last && last._psGroup === group) { last.columns.push(def); return }
+        grouped.push({ title: group, _psGroup: group, cssClass: `ps-sheet-group ${columns[i].cellClass ?? ''}`.trim(), headerHozAlign: 'left', columns: [def] })
+    })
+    if (grouped.some((d) => d._psGroup)) {
+        // Every column outside a group gets an empty group over it, so the header rows line up.
+        for (let i = 0; i < grouped.length; i++) {
+            if (! grouped[i]._psGroup) grouped[i] = { title: '', cssClass: 'ps-sheet-group ps-sheet-group-empty', columns: [grouped[i]] }
+        }
+    }
+    for (const d of grouped) delete d._psGroup
+
     /** The row's classes from its meta (deleted, new, read-only, refused). */
     const rowClasses = (rowComponent) => {
         const el = rowComponent.getElement()
         if (! el || ! el.classList) return
         const m = rowComponent.getData()._m ?? {}
+        // henx: the row's own classes from the server.
+        if (el.dataset.psCls !== (m.cls ?? '')) {
+            if (el.dataset.psCls) el.classList.remove(...el.dataset.psCls.split(/\s+/).filter(Boolean))
+            if (m.cls) el.classList.add(...m.cls.split(/\s+/).filter(Boolean))
+            el.dataset.psCls = m.cls ?? ''
+        }
         el.classList.toggle('ps-sheet-row-deleted', !! m.deleted)
         el.classList.toggle('ps-sheet-row-created', !! m.created)
         el.classList.toggle('ps-sheet-row-readonly', !! m.readOnly)
@@ -315,7 +352,8 @@ export function createGrid(element, options) {
         // after a delete near the end of a short page and after a paste. A sheet has a dozen columns at most.
         renderHorizontal: 'basic',
         renderVertical: 'virtual',
-        rowHeight: options.rowHeight ?? 32,
+        // henx: variable rows are as tall as their content.
+        ...(options.variableRowHeight ? {} : { rowHeight: options.rowHeight ?? 32 }),
         placeholder: placeholder(t.empty),
         rowHeader: {
             field: ROWNUM,
@@ -352,7 +390,7 @@ export function createGrid(element, options) {
         // No headerSort: the Sort module is not registered (a header click asks the server), and Tabulator warns
         // about the option on every column without it.
         columnDefaults: { resizable: 'header', headerHozAlign: 'left' },
-        columns: defs,
+        columns: grouped,
     })
 
     // Tabulator hands the focus back to the holder when an editor closes, without preventScroll: on a
@@ -645,6 +683,9 @@ export function createGrid(element, options) {
 
     const api = {
         table,
+
+        /** henx: redraw the footer (its HTML came with the page). */
+        recalc() { if (built && options.footer) table.recalc() },
 
         ready,
 

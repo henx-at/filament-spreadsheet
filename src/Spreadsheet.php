@@ -79,6 +79,18 @@ class Spreadsheet
 
     protected ?Closure $afterSave = null;
 
+    /** henx: CSS classes of a row: `fn (Model $record): ?string`. */
+    protected ?Closure $rowClass = null;
+
+    /** henx: footer cells as HTML per column name: `fn (): array<string, string>`. */
+    protected ?Closure $footer = null;
+
+    /** henx: save every change on its own (no Save button). */
+    protected bool $autoSave = false;
+
+    /** henx: rows as tall as their content instead of a fixed height. */
+    protected bool $variableRowHeight = false;
+
     protected ?Closure $mutateRowBeforeSave = null;
 
     protected ?string $key = null;
@@ -91,6 +103,59 @@ class Spreadsheet
     }
 
     /* ------------------------------------------------------------------ configuration */
+
+    /** henx: CSS classes per row. */
+    public function rowClass(?Closure $callback): static
+    {
+        $this->rowClass = $callback;
+
+        return $this;
+    }
+
+    /** henx: a footer row; the closure returns HTML per column name and runs on every page read. */
+    public function footer(?Closure $callback): static
+    {
+        $this->footer = $callback;
+
+        return $this;
+    }
+
+    /** henx: save each change right away. */
+    public function autoSave(bool $condition = true): static
+    {
+        $this->autoSave = $condition;
+
+        return $this;
+    }
+
+    /** henx: rows as tall as their content. */
+    public function variableRowHeight(bool $condition = true): static
+    {
+        $this->variableRowHeight = $condition;
+
+        return $this;
+    }
+
+    public function hasFooter(): bool
+    {
+        return $this->footer !== null;
+    }
+
+    public function isAutoSave(): bool
+    {
+        return $this->autoSave;
+    }
+
+    public function hasVariableRowHeight(): bool
+    {
+        return $this->variableRowHeight;
+    }
+
+    /** @return array<string, string>|null */
+    public function presentFooter(): ?array
+    {
+        return $this->footer === null ? null : ($this->footer)();
+    }
 
     /** The records in the sheet. Scope it here (tenant, team…): every read and every write goes through it. */
     public function query(Builder|Closure $query): static
@@ -479,6 +544,7 @@ class Spreadsheet
             'perPage' => $perPage,
             'lastPage' => max(1, $paginator->lastPage()),
             'sort' => $sort,
+            'footer' => $this->presentFooter(),
         ];
     }
 
@@ -536,7 +602,32 @@ class Spreadsheet
             'locked' => $locked,
             'readOnly' => ! $this->canUpdate($record),
             'deletable' => $this->canDelete($record),
+            'class' => $this->rowClass === null ? null : ($this->rowClass)($record),
+            'html' => $this->presentRowHtml($record, $values),
         ];
+    }
+
+    /**
+     * henx: the HTML cells of a row.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, string>
+     */
+    protected function presentRowHtml(Model $record, array $values): array
+    {
+        $html = [];
+
+        foreach ($this->getColumns() as $column) {
+            if ($column->hasHtml()) {
+                $out = $column->presentHtml($record, $values[$column->getName()] ?? null);
+
+                if ($out !== null) {
+                    $html[$column->getName()] = $out;
+                }
+            }
+        }
+
+        return $html;
     }
 
     /**

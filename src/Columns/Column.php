@@ -43,6 +43,15 @@ abstract class Column
 
     protected string|Closure|null $validationAttribute = null;
 
+    /** henx: HTML the cell shows instead of its value (the editor still edits the value): `fn (Model $record, mixed $state): ?string`. */
+    protected ?Closure $html = null;
+
+    /** henx: the column group (a header over consecutive columns with the same group). */
+    protected ?string $group = null;
+
+    /** henx: extra CSS classes on every cell of the column and on its header. */
+    protected ?string $cellClass = null;
+
     final public function __construct(protected string $name) {}
 
     public static function make(string $name): static
@@ -51,6 +60,40 @@ abstract class Column
     }
 
     /* ------------------------------------------------------------------ configuration */
+
+    /** henx: show HTML in the cell instead of the plain value; escape what you put in. */
+    public function html(?Closure $callback): static
+    {
+        $this->html = $callback;
+
+        return $this;
+    }
+
+    /** henx: put the column under a group header; consecutive columns with the same label share it. */
+    public function group(?string $label): static
+    {
+        $this->group = $label;
+
+        return $this;
+    }
+
+    /** henx: extra CSS classes on the column's cells and header. */
+    public function cellClass(?string $classes): static
+    {
+        $this->cellClass = $classes;
+
+        return $this;
+    }
+
+    public function hasHtml(): bool
+    {
+        return $this->html !== null;
+    }
+
+    public function presentHtml(Model $record, mixed $state): ?string
+    {
+        return $this->html === null ? null : ($this->html)($record, $state);
+    }
 
     public function label(string|Closure|null $label): static
     {
@@ -337,6 +380,8 @@ abstract class Column
             'sortable' => $this->isSortable(),
             'placeholder' => $this->placeholder,
             'default' => $this->isEditable() ? $this->presentValue($this->getDefault()) : null,
+            'group' => $this->group,
+            'cellClass' => $this->cellClass,
         ];
     }
 

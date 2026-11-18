@@ -58,6 +58,8 @@ export default function packstubSpreadsheet(config) {
         status: null,
         // The question the dialog asks (Discard, Delete rows): { text, confirm, danger, resolve, answer }.
         dialog: null,
+        // henx: footer cells (HTML per column) from the last page read.
+        footer: null,
         height: config.height ?? null,
 
         rows: [],
@@ -129,6 +131,8 @@ export default function packstubSpreadsheet(config) {
                     locale: config.locale ?? 'en',
                     readOnly: this.readOnly,
                     rowHeight: config.rowHeight,
+                    variableRowHeight: !! config.variableRowHeight,
+                    footer: config.hasFooter ? () => this.footer : null,
                     frozenFirstColumn: config.frozenFirstColumn !== false,
                     // Rows are numbered (and render, as they scroll into view) by the page shown, not by one still asked for.
                     rowOffset: () => (this._applied.page - 1) * this._applied.perPage,
@@ -167,6 +171,7 @@ export default function packstubSpreadsheet(config) {
             this._observer?.disconnect()
             cancelAnimationFrame(this._fitFrame)
             clearTimeout(this._hint)
+            clearTimeout(this._autoSave)
             this.grid?.destroy()
         },
 
@@ -208,7 +213,7 @@ export default function packstubSpreadsheet(config) {
             // A row with unsaved cells shows its formulas over them; a clean row the server's values.
             const values = Object.keys(o.dirty).length ? S.computeRow(this.columns, o.values, o.errors) : o.values
 
-            return { id: row.id, ...values, _m: { dirty: o.dirty, errors: o.errors, conflicts: o.conflicts, rowError: o.rowError, locked: row.locked ?? [], readOnly: !! row.readOnly, deleted: o.deleted, created: false } }
+            return { id: row.id, ...values, _m: { dirty: o.dirty, errors: o.errors, conflicts: o.conflicts, rowError: o.rowError, locked: row.locked ?? [], readOnly: !! row.readOnly, deleted: o.deleted, created: false, cls: row.class ?? null, html: row.html ?? {} } }
         },
 
         createdRow(temp) {
@@ -295,7 +300,18 @@ export default function packstubSpreadsheet(config) {
             // A row element is the row plus its border; the grid's borders are not inside its height.
             const pitch = grid.querySelector('.tabulator-row')?.getBoundingClientRect().height || rowHeight + 1
             const rows = this.grid ? this.grid.ids().length : this.rows.length
-            const needed = Math.ceil(header + Math.max(3, rows) * pitch + 2)
+            let needed = Math.ceil(header + Math.max(3, rows) * pitch + 2)
+            if (config.variableRowHeight) {
+                // henx: rows of their own height: the grid is as tall as its rows and the footer, the page scrolls.
+                const sum = [...grid.querySelectorAll('.tabulator-row')].reduce((h, el) => h + el.getBoundingClientRect().height, 0)
+                const foot = grid.querySelector('.tabulator-footer')?.getBoundingClientRect().height ?? 0
+                const px = Math.ceil(header + Math.max(sum, 3 * rowHeight) + foot + 2)
+                if (this._fitHeight !== null && Math.abs(px - this._fitHeight) < 2) return
+                this._fitHeight = px
+                this.$root.style.setProperty('--ps-sheet-height', `${px}px`)
+
+                return
+            }
             const top = rect.top + window.scrollY
             const gs = getComputedStyle(grid)
             // The variable is the grid's content height: its own borders come on top of it.
@@ -619,11 +635,13 @@ export default function packstubSpreadsheet(config) {
             this.total = r.total ?? this.rows.length
             if (r.perPage) this.perPage = r.perPage
             if (r.sort) this.sort = { ...r.sort }
+            this.footer = r.footer ?? null
             this.lockedPage = ! this.readOnly && ! this.creatable && this.rows.length > 0 && this.rows.every((row) => row.readOnly && ! (this.deletable && row.deletable))
             this._applied = { page: this.page, perPage: this.perPage, sort: { ...this.sort }, query: request ? this.queryKey(request) : was.query }
             const a = this._applied
             const same = a.page === was.page && a.perPage === was.perPage && a.sort.column === was.sort.column && a.sort.direction === was.sort.direction && a.query === was.query
             this.renderPage(! same)
+            this.grid?.recalc?.()
         },
 
         /**
@@ -650,7 +668,15 @@ export default function packstubSpreadsheet(config) {
          */
 
         /** A cell edited in place: what the editor gave, read by the column's rules. */
+        /** henx: with autoSave, save shortly after the last change. */
+        queueAutoSave() {
+            if (! config.autoSave) return
+            clearTimeout(this._autoSave)
+            this._autoSave = setTimeout(() => { if (! this.editing && this.dirty.total) this.save(); else if (this.dirty.total) this.queueAutoSave() }, 400)
+        },
+
         onEdit(id, col, from, to) {
+            this.queueAutoSave()
             const column = this.column(col)
             if (! column) return
             if (this.saving) { this.repaint([id]); return }
@@ -667,6 +693,7 @@ export default function packstubSpreadsheet(config) {
 
         /** Cells written by the fill handle. Each is checked again here: what the grid wrote into a cell it must not edit is repainted back. */
         onRangeEdit(edits) {
+            this.queueAutoSave()
             if (this.saving) { this.repaint(edits.map((e) => e.id)); return }
             const rows = this.visibleRows()
             const list = []
@@ -704,6 +731,7 @@ export default function packstubSpreadsheet(config) {
         },
 
         onPaste(text) {
+            this.queueAutoSave()
             if (this.readOnly || this.saving) return
             const sel = this.grid.selection()
             if (! sel || sel.left < 0) return
